@@ -1,0 +1,8 @@
+{
+  "jira_domain": "your-domain.atlassian.net",
+  "jira_filter": "12345",
+  "username": "your-email@example.com",
+  "password": "your-api-token",
+  "startAt": 0,
+  "maxResults": 20
+}
