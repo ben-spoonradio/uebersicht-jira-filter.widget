@@ -44,7 +44,53 @@ export const command = dispatch => {
       })
       .then(data => {
         // Debug: Log the received data
-        console.log('Confluence API Response:', JSON.stringify(data, null, 2));
+        console.log('=== CONFLUENCE API RESPONSE ===');
+        console.log('Full response:', JSON.stringify(data, null, 2));
+
+        // Check specifically for body content
+        if (data.body && data.body.storage) {
+          console.log('=== BODY STORAGE CONTENT ===');
+          console.log('Raw storage value:', data.body.storage.value);
+          console.log('Storage value length:', data.body.storage.value?.length);
+
+          // Look for date-related content in the raw storage
+          const dateSearch = [
+            /2025년/g,
+            /2024년/g,
+            /년.*?월.*?일/g,
+            /\(월\)/g,
+            /\(화\)/g,
+            /\(수\)/g,
+            /\(목\)/g,
+            /\(금\)/g,
+            /\(토\)/g,
+            /\(일\)/g,
+            /<ac:structured-macro/g,
+            /<time/g,
+            /date/gi,
+            /9월.*?22일/g,
+            /월.*?일.*?\(/g
+          ];
+
+          dateSearch.forEach((pattern, index) => {
+            const matches = data.body.storage.value.match(pattern);
+            if (matches) {
+              console.log(`Pattern ${index} (${pattern}) found:`, matches);
+              // Show surrounding context for date matches
+              matches.forEach(match => {
+                const position = data.body.storage.value.indexOf(match);
+                const context = data.body.storage.value.substring(Math.max(0, position - 50), position + match.length + 50);
+                console.log(`Context for "${match}":`, context);
+              });
+            }
+          });
+
+          // Also search for any potential Korean text that might be dates
+          const koreanTextMatches = data.body.storage.value.match(/[가-힣0-9\s]+년[가-힣0-9\s()]+/g);
+          if (koreanTextMatches) {
+            console.log('Korean text with 년 found:', koreanTextMatches);
+          }
+        }
 
         // If fetching specific page, wrap it in results array format
         if (config.confluence_mode === 'specific_page' && config.confluence_page_id) {
@@ -207,16 +253,16 @@ const PageAuthor = styled.span`
 
 const MarkdownContent = styled.div`
   color: #ddd;
-  font-size: 0.8rem;
-  margin-top: 0.5rem;
-  line-height: 1.6;
+  font-size: 0.75rem;
+  margin-top: 0.4rem;
+  line-height: 1.3;
   overflow-y: auto;
   overflow-x: hidden;
   max-height: 800px;
   white-space: pre-line;
   word-wrap: break-word;
   background-color: rgba(0, 0, 0, 0.3);
-  padding: 0.75rem;
+  padding: 0.5rem;
   border-radius: 0.25rem;
   border: 1px solid #444;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -243,30 +289,32 @@ const MarkdownContent = styled.div`
   /* Markdown-style formatting */
   h1, h2, h3, h4, h5, h6 {
     color: #87CEFA;
-    margin: 1rem 0 0.5rem 0;
+    margin: 0.6rem 0 0.3rem 0;
     font-weight: bold;
-    line-height: 1.2;
+    line-height: 1.1;
   }
 
-  h1 { font-size: 1.2rem; border-bottom: 2px solid #87CEFA; padding-bottom: 0.3rem; }
-  h2 { font-size: 1.1rem; border-bottom: 1px solid #666; padding-bottom: 0.2rem; }
-  h3 { font-size: 1rem; color: #FFD700; }
-  h4 { font-size: 0.95rem; color: #98FB98; }
-  h5 { font-size: 0.9rem; color: #DDA0DD; }
-  h6 { font-size: 0.85rem; color: #F0E68C; }
+  h1 { font-size: 1rem; border-bottom: 2px solid #87CEFA; padding-bottom: 0.2rem; }
+  h2 { font-size: 0.95rem; border-bottom: 1px solid #666; padding-bottom: 0.15rem; }
+  h3 { font-size: 0.9rem; color: #FFD700; }
+  h4 { font-size: 0.85rem; color: #98FB98; }
+  h5 { font-size: 0.8rem; color: #DDA0DD; }
+  h6 { font-size: 0.75rem; color: #F0E68C; }
 
   p {
-    margin: 0.75rem 0;
+    margin: 0.4rem 0;
+    line-height: 1.3;
   }
 
   ul, ol {
-    margin: 0.5rem 0;
-    padding-left: 1.5rem;
+    margin: 0.3rem 0;
+    padding-left: 1.2rem;
   }
 
   li {
-    margin: 0.25rem 0;
+    margin: 0.15rem 0;
     color: #ddd;
+    line-height: 1.2;
   }
 
   strong, b {
@@ -310,20 +358,47 @@ const MarkdownContent = styled.div`
 
   table {
     border-collapse: collapse;
-    margin: 0.75rem 0;
-    width: 100%;
+    margin: 0.5rem 0;
+    width: auto;
+    font-size: 0.75rem;
+    max-width: 100%;
   }
 
   th, td {
     border: 1px solid #666;
-    padding: 0.4rem 0.6rem;
+    padding: 0.15rem 0.3rem;
     text-align: left;
+    word-wrap: break-word;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.1;
   }
 
   th {
     background-color: rgba(135, 206, 250, 0.2);
     color: #87CEFA;
     font-weight: bold;
+    font-size: 0.65rem;
+    line-height: 1;
+  }
+
+  td {
+    vertical-align: top;
+    font-size: 0.7rem;
+  }
+
+  /* Responsive table behavior */
+  @media (max-width: 800px) {
+    table {
+      font-size: 0.7rem;
+    }
+
+    th, td {
+      padding: 0.2rem 0.3rem;
+      max-width: 150px;
+    }
   }
 
   a {
@@ -339,23 +414,23 @@ const MarkdownContent = styled.div`
 
   /* Task list styling */
   .task-list {
-    margin: 0.75rem 0;
+    margin: 0.4rem 0;
   }
 
   .task-item {
     display: flex;
     align-items: flex-start;
-    margin: 0.5rem 0;
-    padding: 0.25rem 0;
+    margin: 0.2rem 0;
+    padding: 0.1rem 0;
   }
 
   .task-checkbox {
     display: inline-block;
-    width: 1.2rem;
-    height: 1.2rem;
-    margin-right: 0.5rem;
-    font-size: 1rem;
-    line-height: 1.2;
+    width: 1rem;
+    height: 1rem;
+    margin-right: 0.4rem;
+    font-size: 0.8rem;
+    line-height: 1;
     text-align: center;
     vertical-align: top;
     flex-shrink: 0;
@@ -371,14 +446,41 @@ const MarkdownContent = styled.div`
 
   .task-text {
     flex: 1;
-    line-height: 1.4;
+    line-height: 1.2;
+    font-size: 0.75rem;
   }
 
   /* Handle task items in regular lists */
   li.task-item {
     list-style: none;
-    margin-left: -1.5rem;
+    margin-left: -1.2rem;
     padding-left: 0;
+  }
+
+  /* Confluence date/time styling */
+  .confluence-date,
+  .confluence-time,
+  .confluence-datetime {
+    display: inline-block;
+    background-color: rgba(135, 206, 250, 0.2);
+    color: #87CEFA;
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.2rem;
+    font-size: 0.7rem;
+    font-weight: bold;
+    border: 1px solid rgba(135, 206, 250, 0.4);
+  }
+
+  .confluence-time {
+    background-color: rgba(255, 215, 0, 0.2);
+    color: #FFD700;
+    border-color: rgba(255, 215, 0, 0.4);
+  }
+
+  .confluence-datetime {
+    background-color: rgba(152, 251, 152, 0.2);
+    color: #98FB98;
+    border-color: rgba(152, 251, 152, 0.4);
   }
 `;
 
@@ -608,12 +710,46 @@ const Issue = ({
 
 const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
   const pageLink = `https://${config.jira_domain}/wiki/spaces/${spaceKey}/pages/${id}`;
-  const updateDate = new Date(lastUpdated).toLocaleDateString('ko-KR', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+
+  // Better date handling with fallbacks and validation
+  let updateDate = 'Unknown';
+  if (lastUpdated) {
+    try {
+      const date = new Date(lastUpdated);
+      if (!isNaN(date.getTime())) {
+        updateDate = date.toLocaleDateString('ko-KR', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+    } catch (error) {
+      console.log('Date parsing error:', error, 'for date:', lastUpdated);
+    }
+  }
+
+  // Debug: Log the raw date data
+  console.log('Date debug:', { lastUpdated, updateDate });
+
+  // Debug: Log raw HTML content for troubleshooting
+  if (body?.storage?.value) {
+    console.log('Raw HTML sample:', body.storage.value.substring(0, 1000));
+    // Look for specific patterns that might contain dates
+    const datePatterns = [
+      /2025년.*?월.*?일/g,
+      /<ac:structured-macro[^>]*ac:name="date"[^>]*>.*?<\/ac:structured-macro>/g,
+      /<time[^>]*>.*?<\/time>/g,
+      /<span[^>]*date[^>]*>.*?<\/span>/g
+    ];
+
+    datePatterns.forEach((pattern, index) => {
+      const matches = body.storage.value.match(pattern);
+      if (matches) {
+        console.log(`Date pattern ${index} matches:`, matches);
+      }
+    });
+  }
 
   // Convert HTML to renderable HTML with markdown-style classes
   const convertToMarkdownHTML = (htmlContent) => {
@@ -624,7 +760,109 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
       // Remove script and style elements
       .replace(/<(script|style)[^>]*>.*?<\/\1>/gis, '')
 
-      // Handle Confluence task checkboxes FIRST
+      // Handle ALL types of Confluence date components
+      .replace(/<ac:structured-macro[^>]*ac:name="date"[^>]*>(.*?)<\/ac:structured-macro>/gis, (match, content) => {
+        console.log('Date macro found:', match);
+        // Extract date value from parameters
+        const valueMatch = content.match(/<ac:parameter[^>]*ac:name="value"[^>]*>([^<]*)<\/ac:parameter>/i);
+        if (valueMatch) {
+          const dateValue = valueMatch[1];
+          try {
+            const date = new Date(dateValue);
+            if (!isNaN(date.getTime())) {
+              return `<span class="confluence-date">${date.toLocaleDateString('ko-KR', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+              })}</span>`;
+            }
+          } catch (e) {
+            console.log('Date macro parsing error:', e);
+          }
+        }
+        return `<span class="confluence-date">[Date Component]</span>`;
+      })
+
+      // Handle inline date elements (alternative format)
+      .replace(/<time[^>]*datetime="([^"]*)"[^>]*>([^<]*)<\/time>/gi, (match, datetime, content) => {
+        console.log('Time element found:', match);
+        if (content && content.trim()) {
+          return `<span class="confluence-date">${content}</span>`;
+        }
+        try {
+          const date = new Date(datetime);
+          if (!isNaN(date.getTime())) {
+            return `<span class="confluence-date">${date.toLocaleDateString('ko-KR', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric'
+            })}</span>`;
+          }
+        } catch (e) {
+          console.log('Time element parsing error:', e);
+        }
+        return `<span class="confluence-date">[Time Element]</span>`;
+      })
+
+      // Handle Confluence Rich Text date formats
+      .replace(/<span[^>]*class="[^"]*date[^"]*"[^>]*>([^<]*)<\/span>/gi, (match, content) => {
+        console.log('Date span found:', match);
+        return `<span class="confluence-date">${content}</span>`;
+      })
+
+      // Handle data-* attributes that might contain dates
+      .replace(/<[^>]*data-date="([^"]*)"[^>]*>([^<]*)<\/[^>]*>/gi, (match, dateValue, content) => {
+        console.log('Data-date found:', match);
+        if (content && content.trim()) {
+          return `<span class="confluence-date">${content}</span>`;
+        }
+        return `<span class="confluence-date">[Data Date]</span>`;
+      })
+
+      // Handle time macros
+      .replace(/<ac:structured-macro[^>]*ac:name="time"[^>]*>(.*?)<\/ac:structured-macro>/gis, (match, content) => {
+        const valueMatch = content.match(/<ac:parameter[^>]*ac:name="value"[^>]*>([^<]*)<\/ac:parameter>/i);
+        if (valueMatch) {
+          const timeValue = valueMatch[1];
+          try {
+            const time = new Date(`1970-01-01T${timeValue}`);
+            if (!isNaN(time.getTime())) {
+              return `<span class="confluence-time">${time.toLocaleTimeString('ko-KR', {
+                hour: '2-digit',
+                minute: '2-digit'
+              })}</span>`;
+            }
+          } catch (e) {
+            console.log('Time macro parsing error:', e);
+          }
+        }
+        return `<span class="confluence-time">[Time]</span>`;
+      })
+
+      // Handle datetime macros
+      .replace(/<ac:structured-macro[^>]*ac:name="datetime"[^>]*>(.*?)<\/ac:structured-macro>/gis, (match, content) => {
+        const valueMatch = content.match(/<ac:parameter[^>]*ac:name="value"[^>]*>([^<]*)<\/ac:parameter>/i);
+        if (valueMatch) {
+          const datetimeValue = valueMatch[1];
+          try {
+            const datetime = new Date(datetimeValue);
+            if (!isNaN(datetime.getTime())) {
+              return `<span class="confluence-datetime">${datetime.toLocaleString('ko-KR', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}</span>`;
+            }
+          } catch (e) {
+            console.log('DateTime macro parsing error:', e);
+          }
+        }
+        return `<span class="confluence-datetime">[DateTime]</span>`;
+      })
+
+      // Handle Confluence task checkboxes
       .replace(/<ac:task-list>/gi, '<div class="task-list">')
       .replace(/<\/ac:task-list>/gi, '</div>')
       .replace(/<ac:task>/gi, '<div class="task-item">')
@@ -650,12 +888,29 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
       .replace(/\[x\]/gi, '<span class="task-checkbox checked">✅</span>')
       .replace(/\[ \]/gi, '<span class="task-checkbox unchecked">⬜</span>')
 
-      // Clean up other Confluence-specific markup
-      .replace(/<ac:structured-macro[^>]*>.*?<\/ac:structured-macro>/gis, '')
-      .replace(/<ac:layout[^>]*>.*?<\/ac:layout>/gis, '')
+      // Clean up other Confluence-specific markup (but preserve content)
+      .replace(/<ac:structured-macro[^>]*ac:name="(?!date|time|datetime)[^"]*"[^>]*>(.*?)<\/ac:structured-macro>/gis, (match, content) => {
+        console.log('Other macro removed:', match.substring(0, 100));
+        return content;
+      })
+      .replace(/<ac:layout[^>]*>(.*?)<\/ac:layout>/gis, '$1')
+      .replace(/<ac:layout-section[^>]*>(.*?)<\/ac:layout-section>/gis, '$1')
+      .replace(/<ac:layout-cell[^>]*>(.*?)<\/ac:layout-cell>/gis, '$1')
+
+      // Clean up remaining Confluence tags while preserving content
+      .replace(/<ac:([^>]*)>(.*?)<\/ac:\1>/gis, (match, tagName, content) => {
+        console.log('AC tag removed:', tagName, 'content:', content.substring(0, 50));
+        return content;
+      })
 
       // Convert Confluence links to regular links
       .replace(/<ac:link[^>]*><ri:page[^>]*ri:content-title="([^"]*)"[^>]*\/><\/ac:link>/gi, '<a href="#">$1</a>')
+
+      // Handle parentheses and special characters that might be getting lost
+      .replace(/\(/g, '(')
+      .replace(/\)/g, ')')
+      .replace(/（/g, '(')
+      .replace(/）/g, ')')
 
       // Decode HTML entities
       .replace(/&nbsp;/g, ' ')
@@ -664,6 +919,8 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
+      .replace(/&#40;/g, '(')
+      .replace(/&#41;/g, ')')
 
       // Clean up extra whitespace but preserve structure
       .replace(/\s+/g, ' ')
@@ -773,6 +1030,19 @@ export const render = (state) => {
             <div>
               <div style={{ color: '#999', fontSize: '0.7rem', padding: '0.5rem', borderBottom: '1px solid #444' }}>
                 Debug: {confluence.results?.length || 0} page(s) loaded | Mode: {config.confluence_mode} | Page ID: {config.confluence_page_id}
+                {confluence.results?.length > 0 && (
+                  <div style={{ marginTop: '0.25rem', fontSize: '0.6rem' }}>
+                    <div>API Response Keys: {Object.keys(confluence.results[0] || {}).join(', ')}</div>
+                    <div>Body available: {confluence.results[0]?.body ? 'Yes' : 'No'}</div>
+                    <div>Storage available: {confluence.results[0]?.body?.storage ? 'Yes' : 'No'}</div>
+                    <div>Content length: {confluence.results[0]?.body?.storage?.value?.length || 0}</div>
+                    {confluence.results[0]?.body?.storage?.value && (
+                      <div style={{ marginTop: '0.25rem', maxHeight: '100px', overflow: 'auto', background: 'rgba(0,0,0,0.5)', padding: '0.25rem', fontSize: '0.5rem' }}>
+                        Raw content preview: {confluence.results[0].body.storage.value.substring(0, 500)}...
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <PageList>
                 {confluence.results?.length > 0 ? (
@@ -781,8 +1051,21 @@ export const render = (state) => {
                       key={page.id}
                       id={page.id}
                       title={page.title}
-                      lastUpdated={page.history?.lastUpdated?.when || page.version?.when}
-                      author={page.history?.lastUpdated?.by?.displayName || page.version?.by?.displayName || 'Unknown'}
+                      lastUpdated={
+                        page.history?.lastUpdated?.when ||
+                        page.version?.when ||
+                        page.history?.createdDate ||
+                        page.version?.createdDate ||
+                        page.createdDate
+                      }
+                      author={
+                        page.history?.lastUpdated?.by?.displayName ||
+                        page.version?.by?.displayName ||
+                        page.history?.createdBy?.displayName ||
+                        page.version?.createdBy?.displayName ||
+                        page.createdBy?.displayName ||
+                        'Unknown'
+                      }
                       spaceKey={page.space?.key || config.confluence_space_key}
                       body={page.body}
                     />
