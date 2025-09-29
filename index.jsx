@@ -9,6 +9,7 @@ const defaults = {
   confluence_space_key: "DEV",
   confluence_page_id: null,
   confluence_mode: "space_pages",
+  confluence_parent_page_id: null,
   confluence_max_results: 10,
 };
 
@@ -16,11 +17,37 @@ const config = Object.assign({}, defaults, _config);
 
 export const refreshFrequency = 1.8e6; // 30m
 
-// Keyboard shortcut to switch tabs
+// Global variable to track selected tab (persisted in localStorage)
+let selectedTab = null;
+
+// Try to get selected tab from localStorage
+if (typeof window !== 'undefined' && window.localStorage) {
+  selectedTab = localStorage.getItem('uebersicht-jira-selected-tab');
+}
+
+// Helper function to get week number
+const getWeekNumber = (date) => {
+  const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+  const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+  return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+};
+
 export const command = dispatch => {
-  // Check if shift+tab keys are pressed to switch tabs
-  // For now, we'll default to showing JIRA first and cycle through
-  const showConfluence = Math.floor(Date.now() / 60000) % 2 === 1; // Switch every minute for demo
+  // Check for manually selected tab from localStorage
+  if (typeof window !== 'undefined' && window.localStorage) {
+    selectedTab = localStorage.getItem('uebersicht-jira-selected-tab');
+  }
+
+  // Check for manually selected tab, otherwise use automatic switching
+  let showConfluence;
+  if (selectedTab === 'jira') {
+    showConfluence = false;
+  } else if (selectedTab === 'confluence') {
+    showConfluence = true;
+  } else {
+    // Auto-switch every minute if no manual selection
+    showConfluence = Math.floor(Date.now() / 60000) % 2 === 1;
+  }
 
   // Fetch JIRA data
   const jiraPromise = fetch(url, opts)
@@ -33,71 +60,129 @@ export const command = dispatch => {
     .then(data => ({ type: 'jira', data }))
     .catch(error => ({ type: 'jira', error }));
 
+  // Helper function to fetch all grandchild pages
+  const fetchGrandchildPages = async (parentId) => {
+    try {
+      // First get child pages
+      const childUrl = new URL(`http://127.0.0.1:41417/https://${config.jira_domain}/wiki/rest/api/content/${parentId}/child/page`);
+      childUrl.search = new URLSearchParams({
+        expand: 'version,space,history.lastUpdated',
+        limit: 50
+      });
+
+      const childResponse = await fetch(childUrl, opts);
+      if (!childResponse.ok) {
+        throw Error(`Child pages: ${childResponse.status} ${childResponse.statusText}`);
+      }
+      const childData = await childResponse.json();
+
+
+      // Then get grandchild pages from each child
+      const allGrandchildren = [];
+
+      for (const childPage of childData.results) {
+        try {
+          const grandchildUrl = new URL(`http://127.0.0.1:41417/https://${config.jira_domain}/wiki/rest/api/content/${childPage.id}/child/page`);
+          grandchildUrl.search = new URLSearchParams({
+            expand: 'version,space,history.lastUpdated,body.storage',
+            limit: 50
+          });
+
+          const grandchildResponse = await fetch(grandchildUrl, opts);
+          if (grandchildResponse.ok) {
+            const grandchildData = await grandchildResponse.json();
+            allGrandchildren.push(...grandchildData.results);
+          }
+        } catch (error) {
+          // Silent error handling
+        }
+      }
+
+      return allGrandchildren;
+    } catch (error) {
+      return [];
+    }
+  };
+
   // Fetch Confluence data if enabled
   const confluencePromise = config.confluence_enabled ?
-    fetch(confluenceUrl, opts)
-      .then((response) => {
+    (async () => {
+      if (config.confluence_mode === 'auto_today' && config.confluence_parent_page_id) {
+        // Fetch grandchild pages
+        const allGrandchildren = await fetchGrandchildPages(config.confluence_parent_page_id);
+
+        const today = new Date();
+        const currentWeek = getWeekNumber(today);
+        const currentMonth = today.getMonth() + 1;
+        const currentDate = today.getDate();
+
+
+        // Sort by creation date (most recent first)
+        allGrandchildren.sort((a, b) => {
+          const dateA = new Date(a.version?.when || a.history?.createdDate || 0);
+          const dateB = new Date(b.version?.when || b.history?.createdDate || 0);
+          return dateB - dateA;
+        });
+
+        // Search for page with current week or date
+        let todayPage = allGrandchildren.find(page => {
+          const title = page.title.toLowerCase();
+          const content = page.body?.storage?.value || '';
+
+          // Check if title contains current week
+          if (title.includes(`week ${currentWeek}`) || title.includes(`주차 ${currentWeek}`)) {
+            return true;
+          }
+
+          // Check if title or content contains current date
+          const datePattern = new RegExp(`${currentMonth}월.*?${currentDate}일`, 'i');
+          if (datePattern.test(title) || datePattern.test(content)) {
+            return true;
+          }
+
+          // Check for recent dates (within a week)
+          for (let i = 0; i <= 7; i++) {
+            const checkDate = new Date(today);
+            checkDate.setDate(today.getDate() - i);
+            const checkMonth = checkDate.getMonth() + 1;
+            const checkDay = checkDate.getDate();
+            const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+            const checkWeekDay = weekDays[checkDate.getDay()];
+
+            const recentDatePattern = new RegExp(`${checkMonth}월.*?${checkDay}일.*?\\(${checkWeekDay}\\)`, 'i');
+            if (recentDatePattern.test(title) || recentDatePattern.test(content)) {
+              return true;
+            }
+          }
+
+          return false;
+        });
+
+        // If no specific match, get the most recent grandchild page
+        if (!todayPage && allGrandchildren.length > 0) {
+          todayPage = allGrandchildren[0];
+        }
+
+        if (todayPage) {
+          return { type: 'confluence', data: { results: [todayPage] } };
+        }
+
+        return { type: 'confluence', data: { results: [] } };
+      } else {
+        // Original logic for other modes
+        const response = await fetch(confluenceUrl, opts);
         if (!response.ok) {
           throw Error(`Confluence: ${response.status} ${response.statusText} - ${confluenceUrl}`);
         }
-        return response.json();
-      })
-      .then(data => {
-        // Debug: Log the received data
-        console.log('=== CONFLUENCE API RESPONSE ===');
-        console.log('Full response:', JSON.stringify(data, null, 2));
-
-        // Check specifically for body content
-        if (data.body && data.body.storage) {
-          console.log('=== BODY STORAGE CONTENT ===');
-          console.log('Raw storage value:', data.body.storage.value);
-          console.log('Storage value length:', data.body.storage.value?.length);
-
-          // Look for date-related content in the raw storage
-          const dateSearch = [
-            /2025년/g,
-            /2024년/g,
-            /년.*?월.*?일/g,
-            /\(월\)/g,
-            /\(화\)/g,
-            /\(수\)/g,
-            /\(목\)/g,
-            /\(금\)/g,
-            /\(토\)/g,
-            /\(일\)/g,
-            /<ac:structured-macro/g,
-            /<time/g,
-            /date/gi,
-            /9월.*?22일/g,
-            /월.*?일.*?\(/g
-          ];
-
-          dateSearch.forEach((pattern, index) => {
-            const matches = data.body.storage.value.match(pattern);
-            if (matches) {
-              console.log(`Pattern ${index} (${pattern}) found:`, matches);
-              // Show surrounding context for date matches
-              matches.forEach(match => {
-                const position = data.body.storage.value.indexOf(match);
-                const context = data.body.storage.value.substring(Math.max(0, position - 50), position + match.length + 50);
-                console.log(`Context for "${match}":`, context);
-              });
-            }
-          });
-
-          // Also search for any potential Korean text that might be dates
-          const koreanTextMatches = data.body.storage.value.match(/[가-힣0-9\s]+년[가-힣0-9\s()]+/g);
-          if (koreanTextMatches) {
-            console.log('Korean text with 년 found:', koreanTextMatches);
-          }
-        }
+        const data = await response.json();
 
         // If fetching specific page, wrap it in results array format
         if (config.confluence_mode === 'specific_page' && config.confluence_page_id) {
           return { type: 'confluence', data: { results: [data] } };
         }
         return { type: 'confluence', data };
-      })
+      }
+    })()
       .catch(error => ({ type: 'confluence', error })) :
     Promise.resolve({ type: 'confluence', data: { results: [] } });
 
@@ -108,7 +193,7 @@ export const command = dispatch => {
         type: 'FETCH_SUCCEEDED',
         jira: jiraResult,
         confluence: confluenceResult,
-        activeTab: config.confluence_enabled ? 'confluence' : 'jira'
+        activeTab: showConfluence && config.confluence_enabled ? 'confluence' : 'jira'
       });
     })
     .catch(error => dispatch({ type: 'FETCH_FAILED', error }));
@@ -153,6 +238,10 @@ const Tab = styled.button`
   &:hover {
     background: rgba(135, 206, 250, 0.2);
     color: #87CEFA;
+  }
+
+  &:active {
+    background: rgba(135, 206, 250, 0.5);
   }
 `;
 
@@ -637,6 +726,14 @@ if (config.confluence_mode === 'specific_page' && config.confluence_page_id) {
   confluenceParams = {
     expand: 'version,space,history.lastUpdated,body.storage'
   };
+} else if (config.confluence_mode === 'auto_today' && config.confluence_parent_page_id) {
+  // Fetch child pages and find today's page
+  confluenceUrl = new URL(`http://127.0.0.1:41417/https://${config.jira_domain}/wiki/rest/api/content/${config.confluence_parent_page_id}/child/page`);
+  confluenceParams = {
+    expand: 'version,space,history.lastUpdated,body.storage',
+    limit: config.confluence_max_results,
+    orderby: 'created desc'
+  };
 } else {
   // Fetch pages from space
   confluenceUrl = new URL(`http://127.0.0.1:41417/https://${config.jira_domain}/wiki/rest/api/content`);
@@ -669,7 +766,7 @@ export const updateState = (event, previousState) => {
         confluence: event.confluence.data || { results: [] },
         jiraError: event.jira.error ? event.jira.error.message : null,
         confluenceError: event.confluence.error ? event.confluence.error.message : null,
-        activeTab: event.activeTab || previousState?.activeTab || 'confluence'
+        activeTab: event.activeTab || previousState?.activeTab || 'jira'
       };
     case 'FETCH_FAILED':
       return {
@@ -685,7 +782,7 @@ export const updateState = (event, previousState) => {
       return previousState || {
         jira: { issues: [] },
         confluence: { results: [] },
-        activeTab: 'confluence'
+        activeTab: 'jira'
       };
   }
 };
@@ -730,31 +827,10 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
         });
       }
     } catch (error) {
-      console.log('Date parsing error:', error, 'for date:', lastUpdated);
+      // Silent error handling
     }
   }
 
-  // Debug: Log the raw date data
-  console.log('Date debug:', { lastUpdated, updateDate });
-
-  // Debug: Log raw HTML content for troubleshooting
-  if (body?.storage?.value) {
-    console.log('Raw HTML sample:', body.storage.value.substring(0, 1000));
-    // Look for specific patterns that might contain dates
-    const datePatterns = [
-      /2025년.*?월.*?일/g,
-      /<ac:structured-macro[^>]*ac:name="date"[^>]*>.*?<\/ac:structured-macro>/g,
-      /<time[^>]*>.*?<\/time>/g,
-      /<span[^>]*date[^>]*>.*?<\/span>/g
-    ];
-
-    datePatterns.forEach((pattern, index) => {
-      const matches = body.storage.value.match(pattern);
-      if (matches) {
-        console.log(`Date pattern ${index} matches:`, matches);
-      }
-    });
-  }
 
   // Convert HTML to renderable HTML with markdown-style classes
   const convertToMarkdownHTML = (htmlContent) => {
@@ -767,7 +843,6 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
 
       // Handle ALL types of Confluence date components
       .replace(/<ac:structured-macro[^>]*ac:name="date"[^>]*>(.*?)<\/ac:structured-macro>/gis, (match, content) => {
-        console.log('Date macro found:', match);
         // Extract date value from parameters
         const valueMatch = content.match(/<ac:parameter[^>]*ac:name="value"[^>]*>([^<]*)<\/ac:parameter>/i);
         if (valueMatch) {
@@ -782,7 +857,7 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
               })}</span>`;
             }
           } catch (e) {
-            console.log('Date macro parsing error:', e);
+            // Silent error handling
           }
         }
         return `<span class="confluence-date">[Date Component]</span>`;
@@ -790,7 +865,6 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
 
       // Handle inline date elements (alternative format)
       .replace(/<time[^>]*datetime="([^"]*)"[^>]*>([^<]*)<\/time>/gi, (match, datetime, content) => {
-        console.log('Time element found:', match);
         if (content && content.trim()) {
           return `<span class="confluence-date">${content}</span>`;
         }
@@ -804,20 +878,18 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
             })}</span>`;
           }
         } catch (e) {
-          console.log('Time element parsing error:', e);
+          // Silent error handling
         }
         return `<span class="confluence-date">[Time Element]</span>`;
       })
 
       // Handle Confluence Rich Text date formats
       .replace(/<span[^>]*class="[^"]*date[^"]*"[^>]*>([^<]*)<\/span>/gi, (match, content) => {
-        console.log('Date span found:', match);
         return `<span class="confluence-date">${content}</span>`;
       })
 
       // Handle data-* attributes that might contain dates
       .replace(/<[^>]*data-date="([^"]*)"[^>]*>([^<]*)<\/[^>]*>/gi, (match, dateValue, content) => {
-        console.log('Data-date found:', match);
         if (content && content.trim()) {
           return `<span class="confluence-date">${content}</span>`;
         }
@@ -838,7 +910,7 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
               })}</span>`;
             }
           } catch (e) {
-            console.log('Time macro parsing error:', e);
+            // Silent error handling
           }
         }
         return `<span class="confluence-time">[Time]</span>`;
@@ -861,7 +933,7 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
               })}</span>`;
             }
           } catch (e) {
-            console.log('DateTime macro parsing error:', e);
+            // Silent error handling
           }
         }
         return `<span class="confluence-datetime">[DateTime]</span>`;
@@ -894,19 +966,13 @@ const ConfluencePage = ({ id, title, lastUpdated, author, spaceKey, body }) => {
       .replace(/\[ \]/gi, '<span class="task-checkbox unchecked">⬜</span>')
 
       // Clean up other Confluence-specific markup (but preserve content)
-      .replace(/<ac:structured-macro[^>]*ac:name="(?!date|time|datetime)[^"]*"[^>]*>(.*?)<\/ac:structured-macro>/gis, (match, content) => {
-        console.log('Other macro removed:', match.substring(0, 100));
-        return content;
-      })
+      .replace(/<ac:structured-macro[^>]*ac:name="(?!date|time|datetime)[^"]*"[^>]*>(.*?)<\/ac:structured-macro>/gis, '$1')
       .replace(/<ac:layout[^>]*>(.*?)<\/ac:layout>/gis, '$1')
       .replace(/<ac:layout-section[^>]*>(.*?)<\/ac:layout-section>/gis, '$1')
       .replace(/<ac:layout-cell[^>]*>(.*?)<\/ac:layout-cell>/gis, '$1')
 
       // Clean up remaining Confluence tags while preserving content
-      .replace(/<ac:([^>]*)>(.*?)<\/ac:\1>/gis, (match, tagName, content) => {
-        console.log('AC tag removed:', tagName, 'content:', content.substring(0, 50));
-        return content;
-      })
+      .replace(/<ac:([^>]*)>(.*?)<\/ac:\1>/gis, '$2')
 
       // Convert Confluence links to regular links
       .replace(/<ac:link[^>]*><ri:page[^>]*ri:content-title="([^"]*)"[^>]*\/><\/ac:link>/gi, '<a href="#">$1</a>')
@@ -994,18 +1060,31 @@ export const render = (state) => {
   }
 
   const handleTabSwitch = (tab) => {
-    // Übersicht doesn't support direct event handling, but we can use a simple state approach
-    // This would need to be handled differently in a real implementation
+    selectedTab = tab;
+    // Store in localStorage for persistence
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem('uebersicht-jira-selected-tab', tab);
+    }
+    // Force page reload to refresh with new tab
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
   };
 
   return (
     <TabContainer>
       <TabHeader>
-        <Tab active={activeTab === 'jira'}>
+        <Tab
+          active={activeTab === 'jira'}
+          onClick={() => handleTabSwitch('jira')}
+        >
           📋 JIRA Issues ({jira.issues?.length || 0})
         </Tab>
         {config.confluence_enabled && (
-          <Tab active={activeTab === 'confluence'}>
+          <Tab
+            active={activeTab === 'confluence'}
+            onClick={() => handleTabSwitch('confluence')}
+          >
             📄 Confluence Pages ({confluence.results?.length || 0})
           </Tab>
         )}
@@ -1033,22 +1112,6 @@ export const render = (state) => {
             </div>
           ) : (
             <div>
-              <div style={{ color: '#999', fontSize: '0.7rem', padding: '0.5rem', borderBottom: '1px solid #444' }}>
-                Debug: {confluence.results?.length || 0} page(s) loaded | Mode: {config.confluence_mode} | Page ID: {config.confluence_page_id}
-                {confluence.results?.length > 0 && (
-                  <div style={{ marginTop: '0.25rem', fontSize: '0.6rem' }}>
-                    <div>API Response Keys: {Object.keys(confluence.results[0] || {}).join(', ')}</div>
-                    <div>Body available: {confluence.results[0]?.body ? 'Yes' : 'No'}</div>
-                    <div>Storage available: {confluence.results[0]?.body?.storage ? 'Yes' : 'No'}</div>
-                    <div>Content length: {confluence.results[0]?.body?.storage?.value?.length || 0}</div>
-                    {confluence.results[0]?.body?.storage?.value && (
-                      <div style={{ marginTop: '0.25rem', maxHeight: '100px', overflow: 'auto', background: 'rgba(0,0,0,0.5)', padding: '0.25rem', fontSize: '0.5rem' }}>
-                        Raw content preview: {confluence.results[0].body.storage.value.substring(0, 500)}...
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
               <PageList>
                 {confluence.results?.length > 0 ? (
                   confluence.results.map((page) => (
