@@ -515,23 +515,35 @@ const Status = styled.div`
   border-radius: 0.25rem;
   margin-right: 0.5rem;
 
-  ${props => {
-    const statusName = props.statusName?.toLowerCase() || '';
-    if (statusName.includes('완료') || statusName.includes('done') || statusName.includes('closed')) {
+  ${(props) => {
+    const statusName = props.statusName?.toLowerCase() || "";
+    if (
+      statusName.includes("완료") ||
+      statusName.includes("done") ||
+      statusName.includes("closed")
+    ) {
       return `
         color: rgba(144, 238, 144, 1.0);
         border-color: rgba(144, 238, 144, 0.5);
         background-color: rgba(144, 238, 144, 0.1);
       `;
     }
-    if (statusName.includes('진행') || statusName.includes('progress') || statusName.includes('in progress')) {
+    if (
+      statusName.includes("진행") ||
+      statusName.includes("progress") ||
+      statusName.includes("in progress")
+    ) {
       return `
         color: rgba(135, 206, 250, 1.0);
         border-color: rgba(135, 206, 250, 0.5);
         background-color: rgba(135, 206, 250, 0.1);
       `;
     }
-    if (statusName.includes('검토') || statusName.includes('review') || statusName.includes('reviewing')) {
+    if (
+      statusName.includes("검토") ||
+      statusName.includes("review") ||
+      statusName.includes("reviewing")
+    ) {
       return `
         color: rgba(255, 215, 0, 1.0);
         border-color: rgba(255, 215, 0, 0.5);
@@ -553,7 +565,7 @@ const Key = styled.span`
   flex-basis: content;
   font-variant: small-caps;
   font-size: 0.9rem;
-  color: rgba(200, 200, 200, 1.0);
+  color: rgba(200, 200, 200, 1);
   text-align: center;
   padding: 0 0.5rem 0.1rem 0.25rem;
   margin: 0;
@@ -564,24 +576,20 @@ const Summary = styled.span`
   white-space: nowrap;
   padding: 0 0.5rem 0.1rem 0.25rem;
   margin: 0;
-  flex-grow: 1.5;  // 기존 2에서 1.5로 조정
+  flex-grow: 1.5; // 기존 2에서 1.5로 조정
   color: white;
   overflow: hidden;
-  text-overflow: ellipsis;  // 긴 텍스트 처리
+  text-overflow: ellipsis; // 긴 텍스트 처리
 `;
 
-const url = new URL(`http://127.0.0.1:41417/https://${config.jira_domain}/rest/api/3/search/jql`);
+const url = new URL(
+  `http://127.0.0.1:41417/https://${config.jira_domain}/rest/api/3/search/jql`,
+);
 const params = {
   jql: `filter = ${config.jira_filter}`,
   startAt: config.startAt,
   maxResults: config.maxResults,
-  fields: [
-    'summary',
-    'status',
-    'issuetype',
-    'assignee',
-    'duedate',
-  ].join(','),
+  fields: ["summary", "status", "issuetype", "assignee", "duedate"].join(","),
 };
 const Assignee = styled.span`
   flex: 1;
@@ -591,7 +599,7 @@ const Assignee = styled.span`
   flex-basis: content;
   font-variant: small-caps;
   font-size: 0.8rem;
-  color: rgba(180, 180, 180, 1.0);
+  color: rgba(180, 180, 180, 1);
   text-align: center;
   padding: 0 0.5rem 0.1rem 0.25rem;
   margin: 0;
@@ -608,7 +616,7 @@ const DueDate = styled.span`
   flex-basis: content;
   font-variant: small-caps;
   font-size: 0.8rem;
-  color: rgba(255, 200, 200, 1.0);
+  color: rgba(255, 200, 200, 1);
   text-align: center;
   padding: 0 0.5rem 0.1rem 0.25rem;
   margin: 0;
@@ -652,7 +660,6 @@ if (config.username && config.password) {
   opts.headers = headers;
 }
 
-
 export const updateState = (event, previousState) => {
   switch (event.type) {
     case 'FETCH_SUCCEEDED':
@@ -683,17 +690,15 @@ export const updateState = (event, previousState) => {
   }
 };
 
-const Issue = ({
-  issuekey,
-  summary,
-  issuetype,
-  status,
-  assignee,
-  duedate,
-}) => {
+const Issue = ({ issuekey, summary, issuetype, status, assignee, duedate }) => {
   const issueLink = `https://${config.jira_domain}/browse/${issuekey}`;
-  const assigneeName = assignee ? assignee.displayName : 'Unassigned';
-  const dueDateDisplay = duedate ? new Date(duedate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }) : '';
+  const assigneeName = assignee ? assignee.displayName : "Unassigned";
+  const dueDateDisplay = duedate
+    ? new Date(duedate).toLocaleDateString("ko-KR", {
+        month: "short",
+        day: "numeric",
+      })
+    : "";
   return (
     <Item>
       <ItemLink href={issueLink}>
