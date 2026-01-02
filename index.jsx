@@ -200,8 +200,8 @@ export const command = dispatch => {
 };
 
 export const className = `
-  left: 0rem;
-  top: 0rem;
+  left: 1.0rem;     /* 좌측 여백 추가 (dim 영역 고려) */
+  top: 1.0rem;      /* 상단 여백 추가 (dim 영역 고려) */
   color: white;
   font-family: -apple-system;
   z-index: 1;
